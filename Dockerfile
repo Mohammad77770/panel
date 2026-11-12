@@ -3,10 +3,17 @@ ARG PYTHON_VERSION=3.14
 # --- مرحله ۱: ساخت داشبورد با Bun ---
 FROM oven/bun:latest AS dashboard-builder
 WORKDIR /build
-# کپی کردن سورس‌کد (از جمله پوشه dashboard)
+
+# کپی کردن فایل‌های پیکربندی داشبورد (package.json و lock) به صورت جداگانه
+COPY dashboard/package.json dashboard/bun.lockb* dashboard/ ./
+
+# نصب وابستگی‌های داشبورد
+RUN bun install --frozen-lockfile || bun install
+
+# کپی کردن کل سورس‌کد و ساخت داشبورد
 COPY . .
-# نصب وابستگی‌ها و ساخت داشبورد
-RUN cd dashboard && bun install --frozen-lockfile && cd .. && bash build_dashboard.sh
+RUN cd dashboard && bun run build
+
 
 # --- مرحله ۲: ساخت بک‌اند پایتون ---
 FROM ghcr.io/astral-sh/uv:python$PYTHON_VERSION-bookworm-slim AS builder
@@ -21,7 +28,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV UV_PYTHON_DOWNLOADS=0
 WORKDIR /build
 COPY pyproject.toml uv.lock ./
-# نصب وابستگی‌های پایتون (بدون نیاز به bind mount که Railway پشتیبانی نمی‌کند)
 RUN uv sync --frozen --no-install-project --no-dev
 ADD . /build
 RUN uv sync --frozen --no-dev
@@ -29,9 +35,13 @@ RUN uv sync --frozen --no-dev
 
 # --- مرحله ۳: ایمیج نهایی ---
 FROM python:$PYTHON_VERSION-slim-bookworm
+
+# کپی کردن بک‌اند از مرحله ۲
 COPY --from=builder /build /code
-# کپی کردن داشبورد ساخته‌شده از مرحله اول
-COPY --from=dashboard-builder /build/dashboard /code/dashboard
+
+# کپی کردن داشبورد ساخته شده از مرحله ۱ به مسیر صحیح
+COPY --from=dashboard-builder /build/dashboard/dist /code/dashboard/dist
+
 WORKDIR /code
 ENV PATH="/code/.venv/bin:$PATH"
 
@@ -52,4 +62,5 @@ COPY healthcheck.sh /code/healthcheck.sh
 RUN chmod +x /code/healthcheck.sh
 
 RUN chmod +x /code/start.sh
+
 ENTRYPOINT ["/code/start.sh"]

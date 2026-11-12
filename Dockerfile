@@ -1,5 +1,14 @@
 ARG PYTHON_VERSION=3.14
 
+# --- مرحله ۱: ساخت داشبورد با Bun ---
+FROM oven/bun:latest AS dashboard-builder
+WORKDIR /build
+# کپی کردن سورس‌کد (از جمله پوشه dashboard)
+COPY . .
+# نصب وابستگی‌ها و ساخت داشبورد
+RUN cd dashboard && bun install --frozen-lockfile && cd .. && bash build_dashboard.sh
+
+# --- مرحله ۲: ساخت بک‌اند پایتون ---
 FROM ghcr.io/astral-sh/uv:python$PYTHON_VERSION-bookworm-slim AS builder
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
@@ -10,29 +19,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 ENV UV_PYTHON_DOWNLOADS=0
-
 WORKDIR /build
-
-# کپی کردن فایل‌های وابستگی به جای استفاده از bind mount
 COPY pyproject.toml uv.lock ./
-
-# نصب وابستگی‌ها با استفاده از کش معتبر Railway
-RUN --mount=type=cache,id=s/76d75f39-0a35-4f84-86ea-54f3499c9843-/root/.cache/uv,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev
-
-# کپی کردن کل پروژه و نصب مجدد
+# نصب وابستگی‌های پایتون (بدون نیاز به bind mount که Railway پشتیبانی نمی‌کند)
+RUN uv sync --frozen --no-install-project --no-dev
 ADD . /build
-RUN --mount=type=cache,id=s/76d75f39-0a35-4f84-86ea-54f3499c9843-/root/.cache/uv,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev
 
 
+# --- مرحله ۳: ایمیج نهایی ---
 FROM python:$PYTHON_VERSION-slim-bookworm
-
 COPY --from=builder /build /code
+# کپی کردن داشبورد ساخته‌شده از مرحله اول
+COPY --from=dashboard-builder /build/dashboard /code/dashboard
 WORKDIR /code
-
 ENV PATH="/code/.venv/bin:$PATH"
 
+# نصب پیش‌نیازهای سیستمی
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
@@ -49,5 +52,4 @@ COPY healthcheck.sh /code/healthcheck.sh
 RUN chmod +x /code/healthcheck.sh
 
 RUN chmod +x /code/start.sh
-
 ENTRYPOINT ["/code/start.sh"]

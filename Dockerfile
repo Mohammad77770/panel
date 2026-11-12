@@ -12,10 +12,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV UV_PYTHON_DOWNLOADS=0
 
 WORKDIR /build
+
+# کپی کردن فایل‌های وابستگی به جای استفاده از bind mount
+COPY pyproject.toml uv.lock ./
+
+# نصب وابستگی‌ها با استفاده از کش معتبر Railway
 RUN --mount=type=cache,id=s/76d75f39-0a35-4f84-86ea-54f3499c9843-/root/.cache/uv,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --frozen --no-install-project --no-dev
+
+# کپی کردن کل پروژه و نصب مجدد
 ADD . /build
 RUN --mount=type=cache,id=s/76d75f39-0a35-4f84-86ea-54f3499c9843-/root/.cache/uv,target=/root/.cache/uv \
     uv sync --frozen --no-dev
@@ -28,8 +33,6 @@ WORKDIR /code
 
 ENV PATH="/code/.venv/bin:$PATH"
 
-# Keep the runtime trust store explicit. Outbound notification clients use it
-# without replacing Python's process-wide SSLContext.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
@@ -42,7 +45,6 @@ RUN chmod +x /usr/bin/pasarguard-cli
 COPY tui_wrapper.sh /usr/bin/pasarguard-tui
 RUN chmod +x /usr/bin/pasarguard-tui
 
-# Copy healthcheck script
 COPY healthcheck.sh /code/healthcheck.sh
 RUN chmod +x /code/healthcheck.sh
 
